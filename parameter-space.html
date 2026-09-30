@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Walking in parameter space</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#FFFFFF; --panel:#FFFFFF; --ink:#1F2937; --ink-soft:#6B7280; --rule:#E5E7EB; --grid:#F1F3F5; --tint:#F8FAFC;
+  --accent:#2563EB; --accent-soft:#DBEAFE; --surface:#FBBF24; --under:#818CF8; --cur:#1F2937; --pin:#9CA3AF;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#111827; --panel:#1A2230; --ink:#F3F4F6; --ink-soft:#9CA3AF; --rule:#2D3748; --grid:#222B3A; --tint:#202938;
+    --accent:#60A5FA; --accent-soft:#1E3A5F; --cur:#F3F4F6; --pin:#6B7280;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#111827; --panel:#1A2230; --ink:#F3F4F6; --ink-soft:#9CA3AF; --rule:#2D3748; --grid:#222B3A; --tint:#202938;
+  --accent:#60A5FA; --accent-soft:#1E3A5F; --cur:#F3F4F6; --pin:#6B7280;
+}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"Nunito",system-ui,-apple-system,"Segoe UI",sans-serif;font-size:16px;line-height:1.45;font-variant-numeric:tabular-nums}
+.wrap{max-width:1240px;margin:0 auto;padding:22px 18px 36px}
+h1{font-weight:800;font-size:clamp(1.6rem,3.5vw,2.2rem);letter-spacing:-.01em;margin:0 0 16px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+@media (max-width:860px){.grid{grid-template-columns:1fr}}
+.panel{background:var(--panel);border:1px solid var(--rule);border-radius:16px;padding:16px;min-width:0}
+h2{font-weight:800;font-size:1.1rem;margin:0 0 6px}
+canvas{display:block;width:100%;aspect-ratio:1/0.85;touch-action:none}
+#pcan{cursor:crosshair}
+:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.stats{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0 0}
+.stat{background:var(--tint);border-radius:10px;padding:6px 12px;font-size:.95rem;color:var(--ink-soft)}
+.stat b{color:var(--ink);font-weight:800;margin-left:6px}
+.stat.g b{color:var(--accent)}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:12px}
+button{font:inherit;font-weight:700;font-size:.95rem;color:var(--ink);background:var(--tint);border:1px solid var(--rule);border-radius:10px;padding:7px 14px;cursor:pointer}
+button:hover{border-color:var(--ink-soft)}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+button.primary:hover{filter:brightness(1.08)}
+button.sq{width:2.3em;padding:5px 0}
+.group{display:inline-flex;align-items:center;gap:4px;font-weight:800;margin-right:6px}
+.group span{margin-right:2px}
+.lr{display:inline-flex;align-items:center;gap:8px;font-size:.95rem;color:var(--ink-soft);font-weight:700}
+.lr input{width:140px;accent-color:var(--accent)}
+.lr output{color:var(--ink);min-width:3.2em}
+label.check{display:inline-flex;gap:6px;align-items:center;font-weight:700;font-size:.95rem;cursor:pointer}
+input[type=checkbox]{accent-color:var(--accent);width:1.05em;height:1.05em}
+.pins{display:flex;flex-direction:column;gap:6px;margin-top:10px}
+.pin{display:flex;align-items:center;gap:10px;font-size:.95rem;flex-wrap:wrap;color:var(--ink-soft)}
+.pin .name{font-weight:800;color:var(--ink);min-width:4em}
+.pin button{padding:3px 10px;font-size:.85rem}
+
+.calc{margin-top:18px}
+.formula,.terms,.expand{font-size:clamp(1.15rem,2.4vw,1.7rem);font-weight:700;line-height:1.6}
+.formula{color:var(--ink-soft);margin-bottom:6px}
+.formula i,.expand i{font-style:italic;font-weight:700}
+.frac{display:inline-flex;flex-direction:column;align-items:center;vertical-align:middle;font-size:.8em;line-height:1.1;margin:0 .15em}
+.frac span:first-child{border-bottom:2px solid currentColor;padding:0 .15em}
+.terms{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px}
+.chip{display:inline-flex;flex-direction:column;align-items:center;padding:4px 10px 2px;border-radius:10px;cursor:pointer;border:2px solid transparent;background:var(--tint)}
+.chip .sq2{font-size:.62em;color:var(--ink-soft);font-weight:700}
+.chip.sel{border-color:currentColor}
+.op{color:var(--ink-soft)}
+.total{color:var(--ink);font-weight:800;background:var(--accent-soft);border-radius:10px;padding:2px 12px}
+.expand{margin-top:10px;font-size:clamp(1rem,2vw,1.35rem);color:var(--ink-soft)}
+.expand .v{color:var(--ink)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Walking in parameter space</h1>
+
+  <div class="grid">
+    <section class="panel" aria-label="Parameter space">
+      <h2>Parameter space</h2>
+      <canvas id="pcan" tabindex="0" aria-label="Cost surface over m and b. Click the surface to choose parameters; arrow keys step in m and b."></canvas>
+      <div class="stats" aria-live="polite">
+        <span class="stat">m<b id="rm"></b></span><span class="stat">b<b id="rb"></b></span><span class="stat">C<b id="rc"></b></span>
+        <span class="stat g">∂C/∂m<b id="gm"></b></span><span class="stat g">∂C/∂b<b id="gb"></b></span>
+      </div>
+      <div class="row">
+        <button class="primary" id="gdBtn">Gradient step</button>
+        <label class="lr" for="lr">Learning rate <input id="lr" type="range" min="0" max="100" step="1"><output id="lrv"></output></label>
+      </div>
+      <div class="row">
+        <span class="group"><span>m</span><button class="sq" data-d="m-" aria-label="Decrease m">−</button><button class="sq" data-d="m+" aria-label="Increase m">+</button></span>
+        <span class="group"><span>b</span><button class="sq" data-d="b-" aria-label="Decrease b">−</button><button class="sq" data-d="b+" aria-label="Increase b">+</button></span>
+        <button id="pinBtn">Pin</button>
+        <button id="clearBtn">Clear trail</button>
+        <label class="check"><input type="checkbox" id="showGrad" checked> Gradient</label>
+      </div>
+    </section>
+
+    <section class="panel" aria-label="Model and data">
+      <h2>Model: y = mx + b</h2>
+      <canvas id="dcan" aria-label="Data points, errors, and the current line. Drag the handle on the y-axis to change b and the other handle to change m."></canvas>
+      <div class="pins" id="pins"></div>
+    </section>
+  </div>
+
+  <section class="panel calc" aria-label="Cost calculation">
+    <h2>Cost</h2>
+    <div class="formula">C(m, b) = <span class="frac"><span>1</span><span>n</span></span> Σ (<i>m</i>·x<sub>i</sub> + <i>b</i> − y<sub>i</sub>)²</div>
+    <div class="terms" id="terms"></div>
+    <div class="expand" id="expand"></div>
+  </section>
+</div>
+
+<script>
+(() => {
+// ---------- data (fixed) ----------
+const pts=[[-4.2,-1.4],[-3.1,-2.4],[-2.3,0.2],[-1.4,-0.8],[-0.5,1.1],[0.6,0.2],[1.5,2.0],[2.7,1.7],[3.9,3.6]].map(([x,y])=>({x,y}));
+const BAR=['#EF4444','#F97316','#F59E0B','#22C55E','#14B8A6','#06B6D4','#3B82F6','#8B5CF6','#EC4899'];
+const XR=5, YR=5, HX=3;
+const MSTEP=0.1, BSTEP=0.25;
+const lrFromSlider=t=>0.001*Math.pow(150,t/100);     // 0.001 … 0.15, log scale
+const sliderFromLr=l=>Math.round(100*Math.log(l/0.001)/Math.log(150));
+let LR=0.01;
+
+function cost(m,b){let s=0;for(const p of pts){const r=m*p.x+b-p.y;s+=r*r}return s/pts.length}
+function grad(m,b){let gm=0,gb=0;for(const p of pts){const r=m*p.x+b-p.y;gm+=r*p.x;gb+=r}const n=pts.length;return[2*gm/n,2*gb/n]}
+const n=pts.length, sx=pts.reduce((s,p)=>s+p.x,0), sy=pts.reduce((s,p)=>s+p.y,0);
+const sxx=pts.reduce((s,p)=>s+p.x*p.x,0), sxy=pts.reduce((s,p)=>s+p.x*p.y,0);
+const bestM=(n*sxy-sx*sy)/(n*sxx-sx*sx), bestB=(sy-bestM*sx)/n;
+
+const DM=1.2, DB=Math.sqrt(sxx/n)*DM;
+const mc=Math.round(bestM*10)/10, bc=Math.round(bestB*10)/10;
+const M0=mc-DM, M1=mc+DM, B0=bc-DB, B1=bc+DB;
+
+let m=mc-0.95, b=bc+2.3;
+let showGrad=true, sel=0;
+let trail=[];
+let pins=[null,null,null], pinOrder=[];
+
+const pcan=document.getElementById('pcan'), dcan=document.getElementById('dcan');
+const pctx=pcan.getContext('2d'), dctx=dcan.getContext('2d');
+let C={};
+function readColors(){const s=getComputedStyle(document.documentElement);
+  ['panel','ink','ink-soft','rule','grid','accent','accent-soft','surface','under','cur','pin'].forEach(k=>C[k]=s.getPropertyValue('--'+k).trim())}
+const SUB=['₁','₂','₃'];
+const FONT='"Nunito",system-ui,sans-serif';
+const clamp=(v,a,z)=>Math.max(a,Math.min(z,v));
+function rgb(hex){let h=hex.replace('#','');if(h.length===3)h=h.split('').map(x=>x+x).join('');const v=parseInt(h,16);return[v>>16&255,v>>8&255,v&255]}
+const rgba=(hex,a)=>{const[r,g,b2]=rgb(hex);return`rgba(${r},${g},${b2},${a})`};
+const fmt=(v,d=2)=>(v<-0.005*10**(2-d)?'−':'')+Math.abs(v).toFixed(d);
+const fmtP=(v,d=2)=>v<0?`(${fmt(v,d)})`:fmt(v,d);
+
+// ---------- surface grid ----------
+const N=44, HW=1.0;
+const Z=[];let zmax=0;
+for(let i=0;i<=N;i++){const row=[];for(let j=0;j<=N;j++){const c=cost(M0+(M1-M0)*i/N,B0+(B1-B0)*j/N);row.push(c);zmax=Math.max(zmax,c)}Z.push(row)}
+const niceStep=x=>{const p=10**Math.floor(Math.log10(x)),f=x/p;return(f<1.5?1:f<3.5?2:f<7.5?5:10)*p};
+const BAND=niceStep(zmax/14);
+
+// ---------- fixed 3D view ----------
+const YAW=33*Math.PI/180, TILT=27*Math.PI/180;
+const cY=Math.cos(YAW), sY=Math.sin(YAW), sT=Math.sin(TILT), cT=Math.cos(TILT);
+let V={S:1,cx:0,cy:0};
+function setupView(W,H){const R=Math.SQRT2,top=-R*sT-HW*cT,bot=R*sT;
+  V.S=Math.min(W/(2*R*1.16),H/((bot-top)*1.2));V.cx=W/2;V.cy=H/2-V.S*(top+bot)/2+4}
+function proj(u,v,w){const xp=u*cY-v*sY,yp=u*sY+v*cY;return[V.cx+V.S*xp,V.cy+V.S*(yp*sT-w*cT),yp*cT+w*sT]}
+const toU=x=>2*(x-M0)/(M1-M0)-1, toV=x=>2*(x-B0)/(B1-B0)-1;
+const fromU=u=>M0+(u+1)/2*(M1-M0), fromV=v=>B0+(v+1)/2*(B1-B0);
+const toW=c=>c/zmax*HW;
+const S3=(mm,bb)=>proj(toU(mm),toV(bb),toW(cost(mm,bb)));
+
+function fit(cv,ctx){const r=cv.getBoundingClientRect(),d=window.devicePixelRatio||1,w=Math.round(r.width*d),h=Math.round(r.height*d);
+  if(cv.width!==w||cv.height!==h){cv.width=w;cv.height=h}ctx.setTransform(d,0,0,d,0,0);return[r.width,r.height]}
+function arrow(ctx,a,b2,col,w,head){
+  const dx=b2[0]-a[0],dy=b2[1]-a[1],L=Math.hypot(dx,dy);if(L<2)return;
+  const ux=dx/L,uy=dy/L,h=Math.min(head,L*0.6);
+  ctx.strokeStyle=col;ctx.fillStyle=col;ctx.lineWidth=w;ctx.lineCap='round';
+  ctx.beginPath();ctx.moveTo(a[0],a[1]);ctx.lineTo(b2[0]-ux*h*0.7,b2[1]-uy*h*0.7);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(b2[0],b2[1]);ctx.lineTo(b2[0]-ux*h-uy*h*0.5,b2[1]-uy*h+ux*h*0.5);ctx.lineTo(b2[0]-ux*h+uy*h*0.5,b2[1]-uy*h-ux*h*0.5);ctx.closePath();ctx.fill();
+}
+const gRef=(()=>{const[gm,gb]=grad(M1,B1);return Math.hypot(gm*(M1-M0)/2,gb*(B1-B0)/2)})();
+const GK=0.5/gRef;
+
+let pickTris=[];
+function drawParam(){
+  const[W,H]=fit(pcan,pctx),ctx=pctx;setupView(W,H);ctx.clearRect(0,0,W,H);
+  const corner=(u,v)=>proj(u,v,0);
+  ctx.fillStyle=rgba(C.ink,0.03);ctx.beginPath();[[-1,-1],[1,-1],[1,1],[-1,1]].forEach(([u,v],k)=>{const p=corner(u,v);k?ctx.lineTo(p[0],p[1]):ctx.moveTo(p[0],p[1])});ctx.closePath();ctx.fill();
+  ctx.textAlign='center';ctx.textBaseline='middle';
+  const lp=(p,t,dx=0,dy=0)=>ctx.fillText(t,p[0]+dx,p[1]+dy);
+  const E=1.1;
+  arrow(ctx,corner(-1,E),corner(1.12,E),C['ink-soft'],1.4,9);
+  arrow(ctx,corner(E,-1),corner(E,1.12),C['ink-soft'],1.4,9);
+  ctx.fillStyle=C.ink;ctx.font=`italic 800 19px ${FONT}`;
+  lp(corner(0.1,1.34),'m');lp(corner(1.34,0.1),'b');
+  ctx.font=`600 12px ${FONT}`;ctx.fillStyle=C['ink-soft'];
+  for(let t=Math.ceil(M0*2)/2;t<=M1+1e-9;t+=0.5)lp(corner(toU(t),1.2),fmt(t,1),0,4);
+  for(let t=Math.ceil(B0);t<=B1+1e-9;t+=1)lp(corner(1.2,toV(t)),fmt(t,0),0,4);
+
+  const L=[-0.3,-0.55,0.78],Ln=Math.hypot(...L);
+  const faces=[];
+  const topSign=(()=>{const a=proj(-1,-1,0),b1=proj(1,-1,0),c1=proj(-1,1,0);return Math.sign((b1[0]-a[0])*(c1[1]-a[1])-(c1[0]-a[0])*(b1[1]-a[1]))})();
+  for(let i=0;i<N;i++)for(let j=0;j<N;j++){
+    const ij=[[i,j],[i+1,j],[i+1,j+1],[i,j+1]];
+    const wv=ij.map(([a,c])=>[2*a/N-1,2*c/N-1,toW(Z[a][c])]);
+    const q=wv.map(p=>proj(...p));
+    const d1=[wv[2][0]-wv[0][0],wv[2][1]-wv[0][1],wv[2][2]-wv[0][2]],d2=[wv[3][0]-wv[1][0],wv[3][1]-wv[1][1],wv[3][2]-wv[1][2]];
+    let nn=[d1[1]*d2[2]-d1[2]*d2[1],d1[2]*d2[0]-d1[0]*d2[2],d1[0]*d2[1]-d1[1]*d2[0]];if(nn[2]<0)nn=nn.map(x=>-x);
+    const lam=Math.max(0,(nn[0]*L[0]+nn[1]*L[1]+nn[2]*L[2])/(Math.hypot(...nn)*Ln));
+    const area=(q[1][0]-q[0][0])*(q[3][1]-q[0][1])-(q[3][0]-q[0][0])*(q[1][1]-q[0][1]);
+    faces.push({under:area*topSign<0,q,wv,i,j,d:(q[0][2]+q[1][2]+q[2][2]+q[3][2])/4,sh:0.7+0.36*lam});
+  }
+  faces.sort((a,c)=>a.d-c.d);
+  const base=rgb(C.surface),baseU=rgb(C.under);
+  for(const f of faces){
+    const[r,g,bl]=(f.under?baseU:base).map(x=>Math.round(clamp(x*f.sh,0,255)));
+    ctx.beginPath();ctx.moveTo(f.q[0][0],f.q[0][1]);for(let k=1;k<4;k++)ctx.lineTo(f.q[k][0],f.q[k][1]);ctx.closePath();
+    ctx.fillStyle=`rgb(${r},${g},${bl})`;ctx.fill();ctx.strokeStyle=`rgb(${r},${g},${bl})`;ctx.lineWidth=0.7;ctx.stroke();
+    const{i,j}=f,zc=[Z[i][j],Z[i+1][j],Z[i+1][j+1],Z[i][j+1]],cu=[[i,j],[i+1,j],[i+1,j+1],[i,j+1]];
+    const lo=Math.min(...zc),hi=Math.max(...zc);
+    ctx.strokeStyle=`rgba(${Math.round(r*.6)},${Math.round(g*.55)},${Math.round(bl*.5)},0.6)`;ctx.lineWidth=1;
+    for(let lev=Math.ceil(lo/BAND)*BAND;lev<hi;lev+=BAND){
+      const hits=[];
+      for(let e=0;e<4;e++){const a=zc[e],c2=zc[(e+1)%4];if((a<lev)!==(c2<lev)){const t=(lev-a)/(c2-a),A=cu[e],B=cu[(e+1)%4];
+        hits.push(proj(2*(A[0]+t*(B[0]-A[0]))/N-1,2*(A[1]+t*(B[1]-A[1]))/N-1,toW(lev)))}}
+      for(let h=0;h+1<hits.length;h+=2){ctx.beginPath();ctx.moveTo(hits[h][0],hits[h][1]);ctx.lineTo(hits[h+1][0],hits[h+1][1]);ctx.stroke()}
+    }
+  }
+  {const a0=proj(-1,1,0),a1=proj(-1,1,HW*1.08);arrow(ctx,a0,a1,C['ink-soft'],1.4,9);
+   ctx.textAlign='right';ctx.font=`600 12px ${FONT}`;ctx.fillStyle=C['ink-soft'];ctx.strokeStyle=C['ink-soft'];ctx.lineWidth=1.2;
+   const cs=niceStep(zmax/4);for(let t=cs;t<=zmax;t+=cs){const p=proj(-1,1,toW(t));ctx.beginPath();ctx.moveTo(p[0]-4,p[1]);ctx.lineTo(p[0]+4,p[1]);ctx.stroke();ctx.fillText(t,p[0]-8,p[1])}
+   ctx.textAlign='center';ctx.fillStyle=C.ink;ctx.font=`italic 800 19px ${FONT}`;ctx.fillText('C',a1[0],a1[1]-14)}
+  pickTris=[];
+  for(let k=faces.length-1;k>=0;k--){const f=faces[k];pickTris.push([0,1,2].map(t=>({s:f.q[t],p:f.wv[t]})),[0,2,3].map(t=>({s:f.q[t],p:f.wv[t]})))}
+
+  for(const seg of trail){
+    if(seg.length>1){ctx.strokeStyle=rgba(C.cur,0.7);ctx.lineWidth=2;ctx.lineJoin='round';ctx.beginPath();
+      seg.forEach((t,k)=>{const p=S3(t.m,t.b);k?ctx.lineTo(p[0],p[1]):ctx.moveTo(p[0],p[1])});ctx.stroke()}
+    ctx.fillStyle=rgba(C.cur,0.75);for(const t of seg)if(t.step){const p=S3(t.m,t.b);ctx.beginPath();ctx.arc(p[0],p[1],2.4,0,7);ctx.fill()}
+  }
+  // pins (neutral) and current point
+  ctx.font=`800 12px ${FONT}`;ctx.textAlign='center';
+  pins.forEach((p,k)=>{if(!p)return;const s=S3(p.m,p.b);ctx.fillStyle=C.pin;ctx.beginPath();ctx.arc(s[0],s[1],8,0,7);ctx.fill();ctx.fillStyle='#fff';ctx.fillText(k+1,s[0],s[1]+0.5)});
+  {const s=S3(m,b);ctx.fillStyle=C.cur;ctx.beginPath();ctx.arc(s[0],s[1],7,0,7);ctx.fill();ctx.strokeStyle=C.panel;ctx.lineWidth=2;ctx.stroke()}
+
+  if(showGrad){
+    const[gm,gb]=grad(m,b);
+    const au=-GK*gm*(M1-M0)/2,av=-GK*gb*(B1-B0)/2,dm=au*(M1-M0)/2,db=av*(B1-B0)/2;
+    const u0=toU(m),v0=toV(b),w0=toW(cost(m,b)),p0=proj(u0,v0,w0);
+    const pm=proj(u0+au,v0,w0+toW(gm*dm)),pb=proj(u0,v0+av,w0+toW(gb*db)),pg=proj(u0+au,v0+av,w0+toW(gm*dm+gb*db));
+    ctx.setLineDash([3,3]);ctx.strokeStyle=rgba(C.accent,0.6);ctx.lineWidth=1.2;
+    ctx.beginPath();ctx.moveTo(pm[0],pm[1]);ctx.lineTo(pg[0],pg[1]);ctx.lineTo(pb[0],pb[1]);ctx.stroke();ctx.setLineDash([]);
+    arrow(ctx,p0,pm,rgba(C.accent,0.7),2,9);arrow(ctx,p0,pb,rgba(C.accent,0.7),2,9);
+    arrow(ctx,p0,pg,C.accent,3.5,13);
+    ctx.font=`italic 800 15px ${FONT}`;ctx.fillStyle=C.accent;
+    const lbl=(p,t)=>{const dx=p[0]-p0[0],dy=p[1]-p0[1],L2=Math.hypot(dx,dy);if(L2<18)return;ctx.fillText(t,p[0]+dx/L2*12,p[1]+dy/L2*12)};
+    lbl(pm,'m');lbl(pb,'b');
+  }
+}
+function pick(X,Y){
+  for(const t of pickTris){
+    const[a,b2,c]=t.map(v=>v.s);const d=(b2[1]-c[1])*(a[0]-c[0])+(c[0]-b2[0])*(a[1]-c[1]);if(Math.abs(d)<1e-9)continue;
+    const l1=((b2[1]-c[1])*(X-c[0])+(c[0]-b2[0])*(Y-c[1]))/d,l2=((c[1]-a[1])*(X-c[0])+(a[0]-c[0])*(Y-c[1]))/d,l3=1-l1-l2;
+    if(l1>=-1e-6&&l2>=-1e-6&&l3>=-1e-6)return[fromU(l1*t[0].p[0]+l2*t[1].p[0]+l3*t[2].p[0]),fromV(l1*t[0].p[1]+l2*t[1].p[1]+l3*t[2].p[1])];
+  }
+  return null;
+}
+
+// ---------- data plot ----------
+let DV={W:1,H:1,pad:22};
+const px=x=>DV.pad+(x+XR)/(2*XR)*(DV.W-2*DV.pad), py=y=>DV.H-DV.pad-(y+YR)/(2*YR)*(DV.H-2*DV.pad);
+const iy=Y=>(DV.H-DV.pad-Y)/(DV.H-2*DV.pad)*2*YR-YR;
+function drawData(){
+  const[W,H]=fit(dcan,dctx),ctx=dctx;DV.W=W;DV.H=H;ctx.clearRect(0,0,W,H);
+  ctx.strokeStyle=C.grid;ctx.lineWidth=1;
+  for(let t=-XR;t<=XR;t++){ctx.beginPath();ctx.moveTo(px(t),py(-YR));ctx.lineTo(px(t),py(YR));ctx.stroke()}
+  for(let t=-YR;t<=YR;t++){ctx.beginPath();ctx.moveTo(px(-XR),py(t));ctx.lineTo(px(XR),py(t));ctx.stroke()}
+  ctx.strokeStyle=C['ink-soft'];ctx.lineWidth=1.3;
+  ctx.beginPath();ctx.moveTo(px(-XR),py(0));ctx.lineTo(px(XR),py(0));ctx.moveTo(px(0),py(-YR));ctx.lineTo(px(0),py(YR));ctx.stroke();
+  ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillStyle=C.ink;ctx.font=`italic 800 18px ${FONT}`;
+  ctx.fillText('x',px(XR)-6,py(0)-14);ctx.fillText('y',px(0)+14,py(YR)+8);
+  ctx.font=`600 12px ${FONT}`;ctx.fillStyle=C['ink-soft'];
+  for(const t of[-4,-2,2,4]){ctx.fillText(fmt(t,0),px(t),py(0)+13);ctx.fillText(fmt(t,0),px(0)-12,py(t))}
+
+  ctx.save();ctx.beginPath();ctx.rect(px(-XR),py(YR),px(XR)-px(-XR),py(-YR)-py(YR));ctx.clip();
+  const line=(mm,bb)=>{ctx.beginPath();ctx.moveTo(px(-XR),py(bb-mm*XR));ctx.lineTo(px(XR),py(bb+mm*XR));ctx.stroke()};
+  ctx.setLineDash([6,5]);ctx.strokeStyle=C.pin;ctx.lineWidth=1.8;pins.forEach(p=>{if(p)line(p.m,p.b)});ctx.setLineDash([]);
+  // slope triangle
+  ctx.fillStyle=rgba(C.ink,0.06);ctx.strokeStyle=C['ink-soft'];ctx.lineWidth=1.5;
+  ctx.beginPath();ctx.moveTo(px(0),py(b));ctx.lineTo(px(1),py(b));ctx.lineTo(px(1),py(b+m));ctx.closePath();ctx.fill();
+  ctx.beginPath();ctx.moveTo(px(0),py(b));ctx.lineTo(px(1),py(b));ctx.lineTo(px(1),py(b+m));ctx.stroke();
+  // errors, colour-coded to the cost terms
+  pts.forEach((p,k)=>{ctx.strokeStyle=BAR[k];ctx.lineWidth=k===sel?5:3;ctx.lineCap='butt';
+    ctx.beginPath();ctx.moveTo(px(p.x),py(p.y));ctx.lineTo(px(p.x),py(m*p.x+b));ctx.stroke()});
+  ctx.strokeStyle=C.cur;ctx.lineWidth=2.6;line(m,b);
+  ctx.font=`italic 800 15px ${FONT}`;ctx.fillStyle=C['ink-soft'];
+  ctx.fillText('1',px(0.5),py(b)+(m>=0?11:-11));ctx.textAlign='left';ctx.fillText('m',px(1)+5,py(b+m/2));
+  ctx.fillStyle=C.ink;ctx.textAlign='right';ctx.fillText('b',px(0)-10,py(b)-(m>=0?-12:12));
+  pts.forEach((p,k)=>{ctx.fillStyle=C.ink;ctx.beginPath();ctx.arc(px(p.x),py(p.y),k===sel?6.5:5,0,7);ctx.fill();
+    if(k===sel){ctx.strokeStyle=BAR[k];ctx.lineWidth=2.5;ctx.stroke()}});
+  for(const hx of[0,HX]){const hy=m*hx+b;if(Math.abs(hy)>YR)continue;
+    ctx.fillStyle=C.panel;ctx.strokeStyle=C.cur;ctx.lineWidth=2;ctx.fillRect(px(hx)-6,py(hy)-6,12,12);ctx.strokeRect(px(hx)-6,py(hy)-6,12,12)}
+  ctx.restore();
+  ctx.font=`800 13px ${FONT}`;ctx.textAlign='right';ctx.fillStyle=C.pin;
+  pins.forEach((p,k)=>{if(!p)return;const x=4.6,y=p.m*x+p.b;if(Math.abs(y)>YR-0.4)return;ctx.fillText(`m${SUB[k]}, b${SUB[k]}`,px(x),py(y)-12)});
+}
+
+// ---------- cost calculation ----------
+const $=id=>document.getElementById(id);
+function renderCalc(){
+  const res=pts.map(p=>m*p.x+b-p.y), sum=res.reduce((s,r)=>s+r*r,0);
+  let h=`<span>=</span><span class="frac"><span>1</span><span>${n}</span></span><span class="op">(</span>`;
+  res.forEach((r,k)=>{h+=(k?'<span class="op">+</span>':'')+`<span class="chip${k===sel?' sel':''}" data-k="${k}" style="color:${BAR[k]}"><span>${fmtP(r)}²</span><span class="sq2">${(r*r).toFixed(2)}</span></span>`});
+  h+=`<span class="op">)</span><span>=</span><span class="frac"><span>${sum.toFixed(2)}</span><span>${n}</span></span><span>=</span><span class="total">${(sum/n).toFixed(2)}</span>`;
+  const T=$('terms');T.innerHTML=h;
+  T.querySelectorAll('.chip').forEach(c=>{const k=+c.dataset.k;c.onmouseenter=c.onclick=()=>{if(sel!==k){sel=k;renderCalc();drawData()}}});
+  const p=pts[sel],r=res[sel],s=BAR[sel];
+  $('expand').innerHTML=`<span style="color:${s}">■</span> (<span class="v">${fmt(m)}</span>·<span class="v">${fmtP(p.x,1)}</span> + <span class="v">${fmt(b)}</span> − <span class="v">${fmtP(p.y,1)}</span>)² = <span style="color:${s}">${fmtP(r)}²</span> = <span class="v">${(r*r).toFixed(2)}</span>`;
+}
+
+// ---------- state ----------
+function renderPins(){
+  const el=$('pins');el.innerHTML='';
+  pins.forEach((p,k)=>{if(!p)return;const d=document.createElement('div');d.className='pin';
+    d.innerHTML=`<span class="name">m${SUB[k]}, b${SUB[k]}</span><span>C = ${cost(p.m,p.b).toFixed(2)}</span>`;
+    const go=document.createElement('button');go.textContent='Go';go.onclick=()=>{newSeg();setParams(p.m,p.b,false)};
+    const x=document.createElement('button');x.textContent='Remove';x.onclick=()=>{pins[k]=null;pinOrder=pinOrder.filter(i=>i!==k);update()};
+    d.append(go,x);el.append(d)});
+}
+const nextSlot=()=>{const e=pins.findIndex(p=>!p);return e>=0?e:pinOrder[0]};
+function update(){
+  const[gm,gb]=grad(m,b);
+  $('rm').textContent=fmt(m);$('rb').textContent=fmt(b);$('rc').textContent=cost(m,b).toFixed(2);
+  $('gm').textContent=fmt(gm);$('gb').textContent=fmt(gb);
+  drawParam();drawData();renderPins();renderCalc();
+}
+function newSeg(){trail.push([{m,b,step:false}])}
+function setParams(mm,bb,step){
+  m=clamp(mm,M0,M1);b=clamp(bb,B0,B1);
+  if(!trail.length)newSeg();const seg=trail[trail.length-1],last=seg[seg.length-1];
+  if(step||Math.hypot(toU(m)-toU(last.m),toV(b)-toV(last.b))>0.004)seg.push({m,b,step});
+  update();
+}
+
+let walking=false;
+pcan.addEventListener('pointerdown',e=>{const r=pcan.getBoundingClientRect(),h=pick(e.clientX-r.left,e.clientY-r.top);if(!h)return;
+  m=h[0];b=h[1];newSeg();walking=true;pcan.setPointerCapture(e.pointerId);update()});
+pcan.addEventListener('pointermove',e=>{if(!walking)return;const r=pcan.getBoundingClientRect(),h=pick(e.clientX-r.left,e.clientY-r.top);if(h)setParams(h[0],h[1],false)});
+['pointerup','pointercancel'].forEach(t=>pcan.addEventListener(t,()=>walking=false));
+const nudge=d=>{const k={'m-':[-MSTEP,0],'m+':[MSTEP,0],'b-':[0,-BSTEP],'b+':[0,BSTEP]}[d];setParams(m+k[0],b+k[1],true)};
+pcan.addEventListener('keydown',e=>{const d={ArrowLeft:'m-',ArrowRight:'m+',ArrowDown:'b-',ArrowUp:'b+'}[e.key];if(d){e.preventDefault();nudge(d)}});
+document.querySelectorAll('[data-d]').forEach(bt=>bt.onclick=()=>nudge(bt.dataset.d));
+$('gdBtn').onclick=()=>{const[gm,gb]=grad(m,b);setParams(m-LR*gm,b-LR*gb,true)};
+const lrIn=$('lr');lrIn.value=sliderFromLr(LR);
+const showLr=()=>$('lrv').textContent=LR<0.01?LR.toFixed(4):LR.toFixed(3);showLr();
+lrIn.oninput=()=>{LR=lrFromSlider(+lrIn.value);showLr()};
+
+let drag=null;
+dcan.addEventListener('pointerdown',e=>{const r=dcan.getBoundingClientRect(),X=e.clientX-r.left,Y=e.clientY-r.top;
+  for(const hx of[0,HX])if(Math.hypot(px(hx)-X,py(m*hx+b)-Y)<18){drag=hx?'m':'b';newSeg();dcan.setPointerCapture(e.pointerId);return}
+  pts.forEach((p,k)=>{if(Math.hypot(px(p.x)-X,Math.min(Math.abs(py(p.y)-Y),Math.abs(py(m*p.x+b)-Y)))<14||(Math.abs(px(p.x)-X)<8&&(Y-py(p.y))*(Y-py(m*p.x+b))<=0)){sel=k;drawData();renderCalc()}})});
+dcan.addEventListener('pointermove',e=>{const r=dcan.getBoundingClientRect(),X=e.clientX-r.left,Y=e.clientY-r.top;
+  if(drag===null){dcan.style.cursor=[0,HX].some(hx=>Math.hypot(px(hx)-X,py(m*hx+b)-Y)<18)?'grab':'default';return}
+  const y=clamp(iy(Y),-YR,YR);
+  if(drag==='b')setParams(m,y,false);else setParams((y-b)/HX,b,false)});
+['pointerup','pointercancel'].forEach(t=>dcan.addEventListener(t,()=>drag=null));
+
+$('pinBtn').onclick=()=>{const k=nextSlot();pins[k]={m,b};pinOrder=pinOrder.filter(i=>i!==k);pinOrder.push(k);update()};
+$('clearBtn').onclick=()=>{trail=[];update()};
+$('showGrad').onchange=e=>{showGrad=e.target.checked;drawParam()};
+
+readColors();update();
+new ResizeObserver(()=>{drawParam();drawData()}).observe(document.querySelector('.grid'));
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change',()=>{readColors();update()});
+if(document.fonts&&document.fonts.ready)document.fonts.ready.then(update);
+})();
+</script>
+</body>
+</html>
