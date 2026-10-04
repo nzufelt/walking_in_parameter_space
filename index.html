@@ -42,7 +42,7 @@ canvas{display:block;width:100%;aspect-ratio:1/0.85;touch-action:none}
 .stat b{color:var(--ink);font-weight:800;margin-left:6px}
 .stat.g b{color:var(--accent)}
 .row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:12px}
-button{font:inherit;font-weight:700;font-size:.95rem;color:var(--ink);background:var(--tint);border:1px solid var(--rule);border-radius:10px;padding:7px 14px;cursor:pointer}
+button{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;touch-action:manipulation;font:inherit;font-weight:700;font-size:.95rem;color:var(--ink);background:var(--tint);border:1px solid var(--rule);border-radius:10px;padding:7px 14px;cursor:pointer}
 button:hover{border-color:var(--ink-soft)}
 button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
 button.primary:hover{filter:brightness(1.08)}
@@ -89,6 +89,8 @@ input[type=checkbox]{accent-color:var(--accent);width:1.05em;height:1.05em}
       </div>
       <div class="row">
         <button class="primary" id="gdBtn">Gradient step</button>
+        <button class="primary" id="sgdBtn">Stochastic step</button>
+        <button class="primary" id="mbBtn">Minibatch step</button>
         <label class="lr" for="lr">Learning rate <input id="lr" type="range" min="0" max="100" step="1"><output id="lrv"></output></label>
       </div>
       <div class="row">
@@ -97,6 +99,7 @@ input[type=checkbox]{accent-color:var(--accent);width:1.05em;height:1.05em}
         <button id="pinBtn">Pin</button>
         <button id="clearBtn">Clear trail</button>
         <label class="check"><input type="checkbox" id="showGrad" checked> Gradient</label>
+        <label class="check"><input type="checkbox" id="equal"> Equal axes</label>
       </div>
     </section>
 
@@ -132,12 +135,14 @@ const n=pts.length, sx=pts.reduce((s,p)=>s+p.x,0), sy=pts.reduce((s,p)=>s+p.y,0)
 const sxx=pts.reduce((s,p)=>s+p.x*p.x,0), sxy=pts.reduce((s,p)=>s+p.x*p.y,0);
 const bestM=(n*sxy-sx*sy)/(n*sxx-sx*sx), bestB=(sy-bestM*sx)/n;
 
-const DM=1.2, DB=Math.sqrt(sxx/n)*DM;
+// two parameter windows, both centred on the best fit:
+//  "balanced": b axis compressed so the bowl looks round
+//  "equal":    one unit of m = one unit of b on screen (true shape)
 const mc=Math.round(bestM*10)/10, bc=Math.round(bestB*10)/10;
-const M0=mc-DM, M1=mc+DM, B0=bc-DB, B1=bc+DB;
+let DM,DB,M0,M1,B0,B1;
 
-let m=mc-0.95, b=bc+2.3;
-let showGrad=true, sel=0;
+let m=mc-0.8, b=bc-1.6;            // start at the back of the bowl
+let showGrad=true, sel=0, batch=null;   // batch: indices used by the last minibatch step
 let trail=[];
 let pins=[null,null,null], pinOrder=[];
 
@@ -156,10 +161,17 @@ const fmtP=(v,d=2)=>v<0?`(${fmt(v,d)})`:fmt(v,d);
 
 // ---------- surface grid ----------
 const N=44, HW=1.0;
-const Z=[];let zmax=0;
-for(let i=0;i<=N;i++){const row=[];for(let j=0;j<=N;j++){const c=cost(M0+(M1-M0)*i/N,B0+(B1-B0)*j/N);row.push(c);zmax=Math.max(zmax,c)}Z.push(row)}
+let Z=[],zmax=0,BAND=1,GK=1;
 const niceStep=x=>{const p=10**Math.floor(Math.log10(x)),f=x/p;return(f<1.5?1:f<3.5?2:f<7.5?5:10)*p};
-const BAND=niceStep(zmax/14);
+function setWindow(equal){
+  if(equal){DM=2;DB=2}else{DM=1.2;DB=Math.sqrt(sxx/n)*DM}
+  M0=mc-DM;M1=mc+DM;B0=bc-DB;B1=bc+DB;
+  Z=[];zmax=0;
+  for(let i=0;i<=N;i++){const row=[];for(let j=0;j<=N;j++){const c=cost(M0+(M1-M0)*i/N,B0+(B1-B0)*j/N);row.push(c);zmax=Math.max(zmax,c)}Z.push(row)}
+  BAND=niceStep(zmax/14);
+  const[gm,gb]=grad(M1,B1);GK=0.5/Math.hypot(gm*2/(M1-M0),gb*2/(B1-B0));
+}
+setWindow(false);
 
 // ---------- fixed 3D view ----------
 const YAW=33*Math.PI/180, TILT=27*Math.PI/180;
@@ -171,6 +183,8 @@ function proj(u,v,w){const xp=u*cY-v*sY,yp=u*sY+v*cY;return[V.cx+V.S*xp,V.cy+V.S
 const toU=x=>2*(x-M0)/(M1-M0)-1, toV=x=>2*(x-B0)/(B1-B0)-1;
 const fromU=u=>M0+(u+1)/2*(M1-M0), fromV=v=>B0+(v+1)/2*(B1-B0);
 const toW=c=>c/zmax*HW;
+const inBatch=k=>!!(batch&&batch.includes(k));
+const inWin=(mm,bb)=>mm>=M0-1e-9&&mm<=M1+1e-9&&bb>=B0-1e-9&&bb<=B1+1e-9;
 const S3=(mm,bb)=>proj(toU(mm),toV(bb),toW(cost(mm,bb)));
 
 function fit(cv,ctx){const r=cv.getBoundingClientRect(),d=window.devicePixelRatio||1,w=Math.round(r.width*d),h=Math.round(r.height*d);
@@ -182,8 +196,7 @@ function arrow(ctx,a,b2,col,w,head){
   ctx.beginPath();ctx.moveTo(a[0],a[1]);ctx.lineTo(b2[0]-ux*h*0.7,b2[1]-uy*h*0.7);ctx.stroke();
   ctx.beginPath();ctx.moveTo(b2[0],b2[1]);ctx.lineTo(b2[0]-ux*h-uy*h*0.5,b2[1]-uy*h+ux*h*0.5);ctx.lineTo(b2[0]-ux*h+uy*h*0.5,b2[1]-uy*h-ux*h*0.5);ctx.closePath();ctx.fill();
 }
-const gRef=(()=>{const[gm,gb]=grad(M1,B1);return Math.hypot(gm*(M1-M0)/2,gb*(B1-B0)/2)})();
-const GK=0.5/gRef;
+
 
 let pickTris=[];
 function drawParam(){
@@ -198,7 +211,7 @@ function drawParam(){
   ctx.fillStyle=C.ink;ctx.font=`italic 800 19px ${FONT}`;
   lp(corner(0.1,1.34),'m');lp(corner(1.34,0.1),'b');
   ctx.font=`600 12px ${FONT}`;ctx.fillStyle=C['ink-soft'];
-  for(let t=Math.ceil(M0*2)/2;t<=M1+1e-9;t+=0.5)lp(corner(toU(t),1.2),fmt(t,1),0,4);
+  {const ms=DM>1.5?1:0.5;for(let t=Math.ceil(M0/ms)*ms;t<=M1+1e-9;t+=ms)lp(corner(toU(t),1.2),fmt(t,ms<1?1:0),0,4);}
   for(let t=Math.ceil(B0);t<=B1+1e-9;t+=1)lp(corner(1.2,toV(t)),fmt(t,0),0,4);
 
   const L=[-0.3,-0.55,0.78],Ln=Math.hypot(...L);
@@ -239,17 +252,20 @@ function drawParam(){
 
   for(const seg of trail){
     if(seg.length>1){ctx.strokeStyle=rgba(C.cur,0.7);ctx.lineWidth=2;ctx.lineJoin='round';ctx.beginPath();
-      seg.forEach((t,k)=>{const p=S3(t.m,t.b);k?ctx.lineTo(p[0],p[1]):ctx.moveTo(p[0],p[1])});ctx.stroke()}
-    ctx.fillStyle=rgba(C.cur,0.75);for(const t of seg)if(t.step){const p=S3(t.m,t.b);ctx.beginPath();ctx.arc(p[0],p[1],2.4,0,7);ctx.fill()}
+      let pen=false;seg.forEach(t=>{if(!inWin(t.m,t.b)){pen=false;return}const p=S3(t.m,t.b);pen?ctx.lineTo(p[0],p[1]):ctx.moveTo(p[0],p[1]);pen=true});ctx.stroke()}
+    for(const t of seg)if(t.step&&inWin(t.m,t.b)){const p=S3(t.m,t.b);ctx.beginPath();ctx.arc(p[0],p[1],t.col?3.4:2.4,0,7);
+      if(t.col==='batch'){ctx.fillStyle=C.panel;ctx.fill();ctx.strokeStyle=C.cur;ctx.lineWidth=1.6;ctx.stroke()}
+      else{ctx.fillStyle=t.col||rgba(C.cur,0.75);ctx.fill()}}
   }
   // pins (neutral) and current point
   ctx.font=`800 12px ${FONT}`;ctx.textAlign='center';
-  pins.forEach((p,k)=>{if(!p)return;const s=S3(p.m,p.b);ctx.fillStyle=C.pin;ctx.beginPath();ctx.arc(s[0],s[1],8,0,7);ctx.fill();ctx.fillStyle='#fff';ctx.fillText(k+1,s[0],s[1]+0.5)});
+  pins.forEach((p,k)=>{if(!p||!inWin(p.m,p.b))return;const s=S3(p.m,p.b);ctx.fillStyle=C.pin;ctx.beginPath();ctx.arc(s[0],s[1],8,0,7);ctx.fill();ctx.fillStyle='#fff';ctx.fillText(k+1,s[0],s[1]+0.5)});
   {const s=S3(m,b);ctx.fillStyle=C.cur;ctx.beginPath();ctx.arc(s[0],s[1],7,0,7);ctx.fill();ctx.strokeStyle=C.panel;ctx.lineWidth=2;ctx.stroke()}
 
   if(showGrad){
     const[gm,gb]=grad(m,b);
-    const au=-GK*gm*(M1-M0)/2,av=-GK*gb*(B1-B0)/2,dm=au*(M1-M0)/2,db=av*(B1-B0)/2;
+    const dm=-GK*gm,db=-GK*gb;                                  // the actual step direction, in (m, b) units
+    const au=dm*2/(M1-M0),av=db*2/(B1-B0);                     // converted to screen coordinates
     const u0=toU(m),v0=toV(b),w0=toW(cost(m,b)),p0=proj(u0,v0,w0);
     const pm=proj(u0+au,v0,w0+toW(gm*dm)),pb=proj(u0,v0+av,w0+toW(gb*db)),pg=proj(u0+au,v0+av,w0+toW(gm*dm+gb*db));
     ctx.setLineDash([3,3]);ctx.strokeStyle=rgba(C.accent,0.6);ctx.lineWidth=1.2;
@@ -294,14 +310,14 @@ function drawData(){
   ctx.beginPath();ctx.moveTo(px(0),py(b));ctx.lineTo(px(1),py(b));ctx.lineTo(px(1),py(b+m));ctx.closePath();ctx.fill();
   ctx.beginPath();ctx.moveTo(px(0),py(b));ctx.lineTo(px(1),py(b));ctx.lineTo(px(1),py(b+m));ctx.stroke();
   // errors, colour-coded to the cost terms
-  pts.forEach((p,k)=>{ctx.strokeStyle=BAR[k];ctx.lineWidth=k===sel?5:3;ctx.lineCap='butt';
+  pts.forEach((p,k)=>{ctx.strokeStyle=BAR[k];ctx.lineWidth=(k===sel||inBatch(k))?5:3;ctx.lineCap='butt';
     ctx.beginPath();ctx.moveTo(px(p.x),py(p.y));ctx.lineTo(px(p.x),py(m*p.x+b));ctx.stroke()});
   ctx.strokeStyle=C.cur;ctx.lineWidth=2.6;line(m,b);
   ctx.font=`italic 800 15px ${FONT}`;ctx.fillStyle=C['ink-soft'];
   ctx.fillText('1',px(0.5),py(b)+(m>=0?11:-11));ctx.textAlign='left';ctx.fillText('m',px(1)+5,py(b+m/2));
   ctx.fillStyle=C.ink;ctx.textAlign='right';ctx.fillText('b',px(0)-10,py(b)-(m>=0?-12:12));
-  pts.forEach((p,k)=>{ctx.fillStyle=C.ink;ctx.beginPath();ctx.arc(px(p.x),py(p.y),k===sel?6.5:5,0,7);ctx.fill();
-    if(k===sel){ctx.strokeStyle=BAR[k];ctx.lineWidth=2.5;ctx.stroke()}});
+  pts.forEach((p,k)=>{ctx.fillStyle=C.ink;ctx.beginPath();ctx.arc(px(p.x),py(p.y),(k===sel||inBatch(k))?6.5:5,0,7);ctx.fill();
+    if(k===sel||inBatch(k)){ctx.strokeStyle=BAR[k];ctx.lineWidth=2.5;ctx.stroke()}});
   for(const hx of[0,HX]){const hy=m*hx+b;if(Math.abs(hy)>YR)continue;
     ctx.fillStyle=C.panel;ctx.strokeStyle=C.cur;ctx.lineWidth=2;ctx.fillRect(px(hx)-6,py(hy)-6,12,12);ctx.strokeRect(px(hx)-6,py(hy)-6,12,12)}
   ctx.restore();
@@ -314,12 +330,12 @@ const $=id=>document.getElementById(id);
 function renderCalc(){
   const res=pts.map(p=>m*p.x+b-p.y), sum=res.reduce((s,r)=>s+r*r,0);
   let h=`<span>=</span><span class="frac"><span>1</span><span>${n}</span></span><span class="op">(</span>`;
-  res.forEach((r,k)=>{h+=(k?'<span class="op">+</span>':'')+`<span class="chip${k===sel?' sel':''}" data-k="${k}" style="color:${BAR[k]}"><span>${fmtP(r)}²</span><span class="sq2">${(r*r).toFixed(2)}</span></span>`});
+  res.forEach((r,k)=>{h+=(k?'<span class="op">+</span>':'')+`<span class="chip${(k===sel||inBatch(k))?' sel':''}" data-k="${k}" style="color:${BAR[k]}"><span>${fmtP(r)}²</span><span class="sq2">${(r*r).toFixed(2)}</span></span>`});
   h+=`<span class="op">)</span><span>=</span><span class="frac"><span>${sum.toFixed(2)}</span><span>${n}</span></span><span>=</span><span class="total">${(sum/n).toFixed(2)}</span>`;
   const T=$('terms');T.innerHTML=h;
-  T.querySelectorAll('.chip').forEach(c=>{const k=+c.dataset.k;c.onmouseenter=c.onclick=()=>{if(sel!==k){sel=k;renderCalc();drawData()}}});
+  T.querySelectorAll('.chip').forEach(c=>{const k=+c.dataset.k;c.onmouseenter=c.onclick=()=>{if(sel!==k){batch=null;sel=k;renderCalc();drawData()}}});
   const p=pts[sel],r=res[sel],s=BAR[sel];
-  $('expand').innerHTML=`<span style="color:${s}">■</span> (<span class="v">${fmt(m)}</span>·<span class="v">${fmtP(p.x,1)}</span> + <span class="v">${fmt(b)}</span> − <span class="v">${fmtP(p.y,1)}</span>)² = <span style="color:${s}">${fmtP(r)}²</span> = <span class="v">${(r*r).toFixed(2)}</span>`;
+  $('expand').innerHTML=`<span style="color:${s}">■</span> (<span class="v">${fmtP(m)}</span>·<span class="v">${fmtP(p.x,1)}</span> + <span class="v">${fmtP(b)}</span> − <span class="v">${fmtP(p.y,1)}</span>)² = <span style="color:${s}">${fmtP(r)}²</span> = <span class="v">${(r*r).toFixed(2)}</span>`;
 }
 
 // ---------- state ----------
@@ -339,22 +355,35 @@ function update(){
   drawParam();drawData();renderPins();renderCalc();
 }
 function newSeg(){trail.push([{m,b,step:false}])}
-function setParams(mm,bb,step){
+function setParams(mm,bb,step,col){
   m=clamp(mm,M0,M1);b=clamp(bb,B0,B1);
   if(!trail.length)newSeg();const seg=trail[trail.length-1],last=seg[seg.length-1];
-  if(step||Math.hypot(toU(m)-toU(last.m),toV(b)-toV(last.b))>0.004)seg.push({m,b,step});
+  if(step||Math.hypot(toU(m)-toU(last.m),toV(b)-toV(last.b))>0.004)seg.push({m,b,step,col});
   update();
 }
 
 let walking=false;
 pcan.addEventListener('pointerdown',e=>{const r=pcan.getBoundingClientRect(),h=pick(e.clientX-r.left,e.clientY-r.top);if(!h)return;
-  m=h[0];b=h[1];newSeg();walking=true;pcan.setPointerCapture(e.pointerId);update()});
+  batch=null;m=h[0];b=h[1];newSeg();walking=true;pcan.setPointerCapture(e.pointerId);update()});
 pcan.addEventListener('pointermove',e=>{if(!walking)return;const r=pcan.getBoundingClientRect(),h=pick(e.clientX-r.left,e.clientY-r.top);if(h)setParams(h[0],h[1],false)});
 ['pointerup','pointercancel'].forEach(t=>pcan.addEventListener(t,()=>walking=false));
 const nudge=d=>{const k={'m-':[-MSTEP,0],'m+':[MSTEP,0],'b-':[0,-BSTEP],'b+':[0,BSTEP]}[d];setParams(m+k[0],b+k[1],true)};
 pcan.addEventListener('keydown',e=>{const d={ArrowLeft:'m-',ArrowRight:'m+',ArrowDown:'b-',ArrowUp:'b+'}[e.key];if(d){e.preventDefault();nudge(d)}});
 document.querySelectorAll('[data-d]').forEach(bt=>bt.onclick=()=>nudge(bt.dataset.d));
-$('gdBtn').onclick=()=>{const[gm,gb]=grad(m,b);setParams(m-LR*gm,b-LR*gb,true)};
+$('gdBtn').onclick=()=>{batch=null;const[gm,gb]=grad(m,b);setParams(m-LR*gm,b-LR*gb,true)};
+// stochastic step: the gradient of ONE randomly chosen point's squared error
+$('sgdBtn').onclick=()=>{const k=Math.floor(Math.random()*n),p=pts[k],r=m*p.x+b-p.y;
+  batch=null;sel=k;setParams(m-LR*2*r*p.x,b-LR*2*r,true,BAR[k])};
+// minibatch step: shuffle the data once per epoch, then take the next BATCH points in order
+const BATCH=4;let order=[],pos=0;
+$('mbBtn').onclick=()=>{
+  if(pos>=n){pos=0;order=[]}
+  if(!order.length){order=[...Array(n).keys()];for(let i=n-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[order[i],order[j]]=[order[j],order[i]]}}
+  batch=order.slice(pos,pos+BATCH);pos+=BATCH;     // the last batch of an epoch can be smaller
+  let gm=0,gb=0;for(const k of batch){const p=pts[k],r=m*p.x+b-p.y;gm+=2*r*p.x;gb+=2*r}
+  gm/=batch.length;gb/=batch.length;sel=batch[0];setParams(m-LR*gm,b-LR*gb,true,'batch');
+};
+$('equal').onchange=e=>{setWindow(e.target.checked);m=clamp(m,M0,M1);b=clamp(b,B0,B1);update()};
 const lrIn=$('lr');lrIn.value=sliderFromLr(LR);
 const showLr=()=>$('lrv').textContent=LR<0.01?LR.toFixed(4):LR.toFixed(3);showLr();
 lrIn.oninput=()=>{LR=lrFromSlider(+lrIn.value);showLr()};
@@ -369,6 +398,17 @@ dcan.addEventListener('pointermove',e=>{const r=dcan.getBoundingClientRect(),X=e
   if(drag==='b')setParams(m,y,false);else setParams((y-b)/HX,b,false)});
 ['pointerup','pointercancel'].forEach(t=>dcan.addEventListener(t,()=>drag=null));
 
+// press-and-hold: one step on press; after a short delay, keep stepping quickly until release
+const HOLD_DELAY=400, HOLD_RATE=45;
+['gdBtn','sgdBtn','mbBtn'].map($).concat([...document.querySelectorAll('[data-d]')]).forEach(btn=>{
+  const fn=btn.onclick;let delay=null,rep=null;
+  const stop=()=>{clearTimeout(delay);clearInterval(rep);delay=rep=null};
+  btn.onclick=e=>{if(e.detail===0)fn()};           // keyboard Enter/Space still works
+  btn.addEventListener('pointerdown',e=>{if(e.button!==0)return;e.preventDefault();btn.focus();stop();fn();
+    delay=setTimeout(()=>{rep=setInterval(fn,HOLD_RATE)},HOLD_DELAY)});
+  ['pointerup','pointerleave','pointercancel','blur'].forEach(t=>btn.addEventListener(t,stop));
+  btn.addEventListener('contextmenu',e=>e.preventDefault());
+});
 $('pinBtn').onclick=()=>{const k=nextSlot();pins[k]={m,b};pinOrder=pinOrder.filter(i=>i!==k);pinOrder.push(k);update()};
 $('clearBtn').onclick=()=>{trail=[];update()};
 $('showGrad').onchange=e=>{showGrad=e.target.checked;drawParam()};
